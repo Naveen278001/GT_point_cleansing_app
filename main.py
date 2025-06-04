@@ -126,7 +126,7 @@ if 'map_zoom_level' not in st.session_state:
 if 'gdf' not in st.session_state:
     st.session_state.gdf = None
 if 'batch_size' not in st.session_state:
-    st.session_state.batch_size = 50
+    st.session_state.batch_size = 10
 if 'current_batch' not in st.session_state:
     st.session_state.current_batch = 0
 if 'last_uploaded_files_names' not in st.session_state:
@@ -239,7 +239,7 @@ def create_buffer_bounds(point, distance_meters=30):
     lon_max, lat_max = transformer_to_wgs84.transform(max_mx, max_my)
     return [[lat_min, lon_min], [lat_max, lon_max]]
 
-def get_current_batch_points(gdf, batch_size=50):
+def get_current_batch_points(gdf, batch_size=10):
     if gdf is None or gdf.empty:
         return pd.DataFrame()
     start_idx = st.session_state.current_batch * batch_size
