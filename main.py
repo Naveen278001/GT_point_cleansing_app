@@ -280,6 +280,26 @@ def zoom_to_current_point():
             ]
             st.session_state.map_zoom_level = 18
 
+def on_non_validated_point_select():
+    selected_option = st.session_state.non_validated_points_dropdown
+    if "S_No:" in selected_option:
+        try:
+            s_no_str = selected_option.split("S_No: ")[1].split(" ")[0]
+            s_no = int(s_no_str)
+            
+            # Find the global index of the selected point
+            global_idx = st.session_state.filtered_gdf[st.session_state.filtered_gdf['S_No'] == s_no].index[0]
+            
+            # Calculate the batch and point within the batch
+            batch_size = st.session_state.batch_size
+            st.session_state.current_batch = math.floor(st.session_state.filtered_gdf.index.get_loc(global_idx) / batch_size)
+            st.session_state.current_point = st.session_state.filtered_gdf.index.get_loc(global_idx) % batch_size
+            
+            zoom_to_current_point()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error navigating to selected point: {e}")
+
 # Main app layout
 st.title("🌱 Ground Truth Validation")
 
@@ -482,7 +502,8 @@ if st.session_state.gdf is not None and st.session_state.filtered_gdf is not Non
                             label="",
                             options=non_validated_options,
                             key='non_validated_points_dropdown',
-                            help="List of points that are not yet validated, grouped by batch."
+                            help="List of points that are not yet validated, grouped by batch.",
+                            on_change=on_non_validated_point_select
                         )
                     else:
                         st.markdown("<p style='color:black;'>All points in the current filter are validated!</p>", unsafe_allow_html=True)
