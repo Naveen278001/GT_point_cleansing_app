@@ -500,11 +500,16 @@ if st.session_state.gdf is not None and st.session_state.filtered_gdf is not Non
                 # Current point details in a compact card
                 with st.container():
                         st.markdown(f"""
-                        <div class="point-info-card" style="height:100px; overflow:auto; padding:5px; border:1px solid #ccc; border-radius:9px;">
-                            <p style="margin-bottom: 2px; color:black;"><strong>Current Point:</strong> {st.session_state.current_point + 1}/{len(batch_points_df)}</p>
+                        <div class="point-info-card" style="padding:5px; border:1px solid #ccc; border-radius:9px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                <p style="color:black; margin:0;"><strong>Current Point:</strong> {st.session_state.current_point + 1}/{len(batch_points_df)}</p>
+                                <p style="color:black; margin:0;"><strong>ID:</strong> {current_point_details['S_No']}</p>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                <p style="color:black; margin:0;"><strong>Batch:</strong> {st.session_state.current_batch + 1}/{total_batches}</p>
+                                <p style="color:black; margin:0;"><strong>Status:</strong> {current_point_details['validation']}</p>
+                            </div>
                             <p style="margin-bottom: 2px; color:black;"><strong>Crop:</strong> {current_point_details['crop_name']}</p>
-                            <p style="margin-bottom: 2px; color:black;"><strong>ID:</strong> {current_point_details['S_No']}</p>
-                            <p style="margin-bottom: 2px; color:black;"><strong>Status:</strong> {current_point_details['validation']}</p>
                         </div>
                         """, unsafe_allow_html=True)
                 
