@@ -216,6 +216,19 @@ def load_data(uploaded_files_list_arg):
             gdf['validation'] = gdf['validation'].apply(
                 lambda x: "Correct" if x is True else ("Incorrect" if x is False else x)
             ).astype(str)
+
+        # Remove duplicate records based on latitude and longitude
+        initial_len = len(gdf)
+        # Extract latitude and longitude into temporary columns for deduplication
+        gdf['temp_latitude'] = gdf.geometry.y
+        gdf['temp_longitude'] = gdf.geometry.x
+        gdf.drop_duplicates(subset=['temp_latitude', 'temp_longitude'], inplace=True)
+        # Drop the temporary columns
+        gdf.drop(columns=['temp_latitude', 'temp_longitude'], inplace=True)
+
+        if len(gdf) < initial_len:
+            st.warning(f"Removed {initial_len - len(gdf)} duplicate points based on coordinates.")
+
         return gdf
     except Exception as e:
         st.error(f"Error processing uploaded file: {str(e)}")
@@ -278,7 +291,7 @@ def zoom_to_current_point():
                 (buffer_bounds[0][0] + buffer_bounds[1][0]) / 2,
                 (buffer_bounds[0][1] + buffer_bounds[1][1]) / 2
             ]
-            st.session_state.map_zoom_level = 18
+            st.session_state.map_zoom_level = 18 # Default zoom level for navigation
 
 def on_non_validated_point_select():
     selected_option = st.session_state.non_validated_points_dropdown
@@ -296,7 +309,6 @@ def on_non_validated_point_select():
             st.session_state.current_point = st.session_state.filtered_gdf.index.get_loc(global_idx) % batch_size
             
             zoom_to_current_point()
-            st.rerun()
         except Exception as e:
             st.error(f"Error navigating to selected point: {e}")
 
@@ -383,7 +395,7 @@ with st.sidebar:
                 st.session_state.gdf['crop_name'] == selected_crop_for_download
             ].copy()
 
-        filtered_csv_data = filtered_download_gdf.drop(columns=['geometry']).to_csv(index=False).encode('utf-8')
+        filtered_csv_data = filtered_download_gdf.to_csv(index=False).encode('utf-8')
         st.download_button(
             label=f"Download {selected_crop_for_download} Data",
             data=filtered_csv_data,
@@ -608,4 +620,4 @@ if st.session_state.gdf is not None and st.session_state.filtered_gdf is not Non
     else:
         st.warning("No data matches your filter criteria.")
 else:
-    st.info("Please upload a shapefile to begin")
+    st.markdown("<p style='color:black;'>Please upload a shapefile to begin</p>", unsafe_allow_html=True)
