@@ -266,29 +266,50 @@ def set_validation(status):
     if not batch_df.empty:
         global_idx = batch_df.index[st.session_state.current_point_idx]
         st.session_state.gdf.loc[global_idx, 'validation'] = status
+        st.session_state.gdf = st.session_state.gdf.copy() # Force update for caching
         st.session_state.filtered_gdf.loc[global_idx, 'validation'] = status
+        st.session_state.filtered_gdf = st.session_state.filtered_gdf.copy() # Force update for caching
         st.toast(f"Point {st.session_state.gdf.loc[global_idx, 'S_No']} marked as {status}!")
-        next_point() # Auto-navigate to the next point
+
+        # Check if this was the last point in the current batch
+        if st.session_state.current_point_idx == len(batch_df) - 1:
+            total_batches = math.ceil(len(st.session_state.filtered_gdf) / st.session_state.batch_size)
+            if st.session_state.current_batch < total_batches - 1:
+                # Move to the next batch
+                st.session_state.current_batch += 1
+                st.session_state.current_point_idx = 0
+                zoom_to_point()
+            else:
+                # All points in the current filter validated or no more batches
+                st.toast("All points in the current filter validated!")
+        else:
+            # Move to the next point in the current batch
+            st.session_state.current_point_idx += 1
+            zoom_to_point()
 
 def set_validation_by_s_no(s_no, status):
-    """Sets validation status for a point identified by S_No (from popup) and moves to the next."""
+    """Sets validation status for a point identified by S_No (from popup)."""
     # Find the index in the main GDF
     idx_list = st.session_state.gdf[st.session_state.gdf['S_No'] == s_no].index
     if not idx_list.empty:
         global_idx = idx_list[0]
         st.session_state.gdf.loc[global_idx, 'validation'] = status
+        st.session_state.gdf = st.session_state.gdf.copy() # Force update for caching
         # Also update the filtered GDF if the point exists there
         if global_idx in st.session_state.filtered_gdf.index:
             st.session_state.filtered_gdf.loc[global_idx, 'validation'] = status
+            st.session_state.filtered_gdf = st.session_state.filtered_gdf.copy() # Force update for caching
         st.toast(f"Point {s_no} marked as {status} via popup!")
-        next_point() # Auto-navigate to the next point
+        # No auto-navigation for popup validation, just update data and let Streamlit re-render
 
 def bulk_validate(indices, status):
     """Validates a list of points by their global indices."""
     st.session_state.gdf.loc[indices, 'validation'] = status
+    st.session_state.gdf = st.session_state.gdf.copy() # Force update for caching
     # Find which of these indices are in the current filtered view and update them too
     filtered_indices_to_update = st.session_state.filtered_gdf.index.intersection(indices)
     st.session_state.filtered_gdf.loc[filtered_indices_to_update, 'validation'] = status
+    st.session_state.filtered_gdf = st.session_state.filtered_gdf.copy() # Force update for caching
     st.success(f"Validated {len(indices)} points as {status}!")
     # Clear the drawing from the map state
     if st.session_state.map_data and 'all_drawings' in st.session_state.map_data:
@@ -474,7 +495,7 @@ else:
             st.markdown(f"<p style='color:black;'><b>Validated:</b> {validated_count} / {total_points_in_filter}</p>", unsafe_allow_html=True)
 
             non_validated_options = get_non_validated_options_cached(
-                st.session_state.filtered_gdf, st.session_state.batch_size
+                st.session_state.filtered_gdf.copy(), st.session_state.batch_size
             )
 
             if non_validated_options:
@@ -514,6 +535,7 @@ else:
                 tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
                 attr='Google Satellite',
                 control_scale=True
+                #max_zoom=21
             )
 
             # Add Draw plugin for bounding box (Improvement 1)
@@ -550,10 +572,14 @@ else:
                 </div>
                 """
                 
-                folium.Marker(
+                folium.CircleMarker(
                     location=[row.geometry.y, row.geometry.x],
-                    popup=folium.Popup(popup_html),
-                    icon=folium.Icon(color=color, icon=icon, prefix='fa')
+                    radius=2, # Set radius to 2
+                    color=color,
+                    fill=True,
+                    fill_color=color,
+                    fill_opacity=0.7,
+                    popup=folium.Popup(popup_html)
                 ).add_to(m)
 
             # Render the map
