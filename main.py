@@ -444,8 +444,8 @@ else:
             # Display batch points with highlight
             display_df = batch_df[['S_No', 'crop_name', 'validation']].reset_index(drop=True)
             st.dataframe(
-                display_df.style.apply(lambda row: ['background-color: #3498db; color: white'] * len(row) 
-                    if row.name == st.session_state.current_point_idx else [''] * len(row), axis=1),
+                    display_df.style.apply(lambda row: ['background-color: #3498db; color: white'] * len(row) 
+                        if row.name == st.session_state.current_point_idx else [''] * len(row), axis=1),
                 height=150,
                 use_container_width=True
             )
@@ -575,8 +575,8 @@ else:
                 coords = last_drawing['geometry']['coordinates'][0]
                 drawn_polygon = Polygon(coords)
 
-                # Find points within the polygon
-                points_in_box = st.session_state.filtered_gdf[st.session_state.filtered_gdf.within(drawn_polygon)]
+                # Find points within the polygon from the current batch only
+                points_in_box = batch_df[batch_df.within(drawn_polygon)]
                 
                 if not points_in_box.empty:
                     st.markdown(f"<p style='color:black;'>Found <b>{len(points_in_box)}</b> points in the selected area.</p>", unsafe_allow_html=True)
