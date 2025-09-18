@@ -11,6 +11,7 @@ import math
 import pyproj
 import fiona
 from datetime import datetime
+import streamlit.components.v1 as components
 
 # Set page config with a more compact layout
 st.set_page_config(
@@ -18,11 +19,6 @@ st.set_page_config(
     page_title="Ground Truth Validator",
     page_icon="🌱"
 )
-
-# Increase upload size limit to 1GB
-# This is a deprecated way. For Streamlit Cloud, configure in settings.
-# For local, run with: streamlit run your_script.py --server.maxUploadSize 1024
-# st.config.set_option('server.maxUploadSize', 1024)
 
 # Custom CSS for improved UI and to minimize scrolling
 st.markdown("""
@@ -121,7 +117,6 @@ div[data-testid="stButton"] button:disabled {
 """, unsafe_allow_html=True)
 
 # --- Session State Initialization ---
-# Using complex objects in session state, so initialize carefully
 if 'gdf' not in st.session_state:
     st.session_state.gdf = None
 if 'filtered_gdf' not in st.session_state:
@@ -137,7 +132,7 @@ if 'batch_size' not in st.session_state:
 if 'map_center' not in st.session_state:
     st.session_state.map_center = [10.5, 78.5]
 if 'map_zoom' not in st.session_state:
-    st.session_state.map_zoom = 18
+    st.session_state.map_zoom = 20
 if 'last_uploaded_files' not in st.session_state:
     st.session_state.last_uploaded_files = []
 if 'map_data' not in st.session_state:
@@ -215,7 +210,7 @@ def update_filtered_data():
             st.session_state.filtered_gdf = st.session_state.gdf.copy()
         else:
             st.session_state.filtered_gdf = st.session_state.gdf[st.session_state.gdf['crop_name'] == crop].copy()
-        
+       
         # Reset navigation
         st.session_state.current_batch = 0
         st.session_state.current_point_idx = 0
@@ -225,16 +220,27 @@ def zoom_to_point(point_index=None):
     """Updates map center and zoom level to focus on a specific point."""
     if point_index is None:
         point_index = st.session_state.current_point_idx
-    
+   
     if st.session_state.filtered_gdf is not None and not st.session_state.filtered_gdf.empty:
         batch_df = get_current_batch_df()
         if not batch_df.empty and point_index < len(batch_df):
             point_geom = batch_df.iloc[point_index].geometry
             st.session_state.map_center = [point_geom.y, point_geom.x]
-            st.session_state.map_zoom = 18
+            st.session_state.map_zoom = 20
 
 # --- Callback Functions for Performance ---
-# These functions only modify session_state, preventing full reruns for simple actions.
+
+def go_to_point_from_dataframe(s_no):
+    """Navigates to a specific point selected from the Batch Overview dataframe."""
+    if st.session_state.filtered_gdf is not None and not st.session_state.filtered_gdf.empty:
+        try:
+            global_idx = st.session_state.filtered_gdf[st.session_state.filtered_gdf['S_No'] == s_no].index[0]
+            batch_size = st.session_state.batch_size
+            st.session_state.current_batch = math.floor(st.session_state.filtered_gdf.index.get_loc(global_idx) / batch_size)
+            st.session_state.current_point_idx = st.session_state.filtered_gdf.index.get_loc(global_idx) % batch_size
+            zoom_to_point()
+        except Exception as e:
+            st.error(f"Error navigating to selected point: {e}")
 
 def next_point():
     batch_df = get_current_batch_df()
@@ -266,52 +272,43 @@ def set_validation(status):
     if not batch_df.empty:
         global_idx = batch_df.index[st.session_state.current_point_idx]
         st.session_state.gdf.loc[global_idx, 'validation'] = status
-        st.session_state.gdf = st.session_state.gdf.copy() # Force update for caching
+        st.session_state.gdf = st.session_state.gdf.copy()
         st.session_state.filtered_gdf.loc[global_idx, 'validation'] = status
-        st.session_state.filtered_gdf = st.session_state.filtered_gdf.copy() # Force update for caching
+        st.session_state.filtered_gdf = st.session_state.filtered_gdf.copy()
         st.toast(f"Point {st.session_state.gdf.loc[global_idx, 'S_No']} marked as {status}!")
 
-        # Check if this was the last point in the current batch
         if st.session_state.current_point_idx == len(batch_df) - 1:
             total_batches = math.ceil(len(st.session_state.filtered_gdf) / st.session_state.batch_size)
             if st.session_state.current_batch < total_batches - 1:
-                # Move to the next batch
                 st.session_state.current_batch += 1
                 st.session_state.current_point_idx = 0
                 zoom_to_point()
             else:
-                # All points in the current filter validated or no more batches
                 st.toast("All points in the current filter validated!")
         else:
-            # Move to the next point in the current batch
             st.session_state.current_point_idx += 1
             zoom_to_point()
 
 def set_validation_by_s_no(s_no, status):
     """Sets validation status for a point identified by S_No (from popup)."""
-    # Find the index in the main GDF
     idx_list = st.session_state.gdf[st.session_state.gdf['S_No'] == s_no].index
     if not idx_list.empty:
         global_idx = idx_list[0]
         st.session_state.gdf.loc[global_idx, 'validation'] = status
-        st.session_state.gdf = st.session_state.gdf.copy() # Force update for caching
-        # Also update the filtered GDF if the point exists there
+        st.session_state.gdf = st.session_state.gdf.copy()
         if global_idx in st.session_state.filtered_gdf.index:
             st.session_state.filtered_gdf.loc[global_idx, 'validation'] = status
-            st.session_state.filtered_gdf = st.session_state.filtered_gdf.copy() # Force update for caching
+            st.session_state.filtered_gdf = st.session_state.filtered_gdf.copy()
         st.toast(f"Point {s_no} marked as {status} via popup!")
-        # No auto-navigation for popup validation, just update data and let Streamlit re-render
 
 def bulk_validate(indices, status):
     """Validates a list of points by their global indices."""
     st.session_state.gdf.loc[indices, 'validation'] = status
-    st.session_state.gdf = st.session_state.gdf.copy() # Force update for caching
-    # Find which of these indices are in the current filtered view and update them too
+    st.session_state.gdf = st.session_state.gdf.copy()
     filtered_indices_to_update = st.session_state.filtered_gdf.index.intersection(indices)
     st.session_state.filtered_gdf.loc[filtered_indices_to_update, 'validation'] = status
-    st.session_state.filtered_gdf = st.session_state.filtered_gdf.copy() # Force update for caching
+    st.session_state.filtered_gdf = st.session_state.filtered_gdf.copy()
     st.success(f"Validated {len(indices)} points as {status}!")
-    # Clear the drawing from the map state
     if st.session_state.map_data and 'all_drawings' in st.session_state.map_data:
         st.session_state.map_data['all_drawings'] = None
 
@@ -321,15 +318,10 @@ def on_non_validated_point_select():
         try:
             s_no_str = selected_option.split("S_No: ")[1].split(" ")[0]
             s_no = int(s_no_str)
-            
-            # Find the global index of the selected point
             global_idx = st.session_state.filtered_gdf[st.session_state.filtered_gdf['S_No'] == s_no].index[0]
-            
-            # Calculate the batch and point within the batch
             batch_size = st.session_state.batch_size
             st.session_state.current_batch = math.floor(st.session_state.filtered_gdf.index.get_loc(global_idx) / batch_size)
             st.session_state.current_point_idx = st.session_state.filtered_gdf.index.get_loc(global_idx) % batch_size
-            
             zoom_to_point()
         except Exception as e:
             st.error(f"Error navigating to selected point: {e}")
@@ -338,14 +330,9 @@ def on_non_validated_point_select():
 def get_non_validated_options_cached(_filtered_gdf, batch_size):
     if _filtered_gdf is None or _filtered_gdf.empty:
         return []
-
-    non_validated_points = _filtered_gdf[
-        _filtered_gdf['validation'] == 'Not Validated'
-    ]
-
+    non_validated_points = _filtered_gdf[_filtered_gdf['validation'] == 'Not Validated']
     if non_validated_points.empty:
         return []
-
     non_validated_batches = {}
     for idx, row in non_validated_points.iterrows():
         global_idx_in_filtered = _filtered_gdf.index.get_loc(idx)
@@ -353,7 +340,6 @@ def get_non_validated_options_cached(_filtered_gdf, batch_size):
         if batch_num not in non_validated_batches:
             non_validated_batches[batch_num] = []
         non_validated_batches[batch_num].append(f"S_No: {row['S_No']} (Crop: {row['crop_name']})")
-    
     non_validated_options = []
     for batch, points in sorted(non_validated_batches.items()):
         non_validated_options.append(f"Batch {batch} ({len(points)} points)")
@@ -383,11 +369,10 @@ with st.sidebar:
         key="data_uploader"
     )
 
-    # Load data only if new files are uploaded
     if uploaded_files and uploaded_files != st.session_state.last_uploaded_files:
         st.session_state.gdf = load_data(uploaded_files)
         st.session_state.last_uploaded_files = uploaded_files
-        st.session_state.selected_crop = 'All' # Reset filter on new upload
+        st.session_state.selected_crop = 'All'
         update_filtered_data()
 
     if st.session_state.gdf is not None:
@@ -408,7 +393,7 @@ with st.sidebar:
             label="Select Crop for Download",
             options=download_options,
             key='selected_crop_for_download',
-            label_visibility="collapsed" # Hide built-in label
+            label_visibility="collapsed"
         )
 
         if selected_crop_for_download == 'All':
@@ -424,20 +409,18 @@ with st.sidebar:
             data=filtered_csv_data,
             file_name=f"validated_ground_truth_{selected_crop_for_download}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv",
-            key="download_filtered_data", # Added unique key
-            help=f"Download the {selected_crop_for_download} dataset with updated validation statuses as a CSV file." # Corrected typo
+            key="download_filtered_data",
+            help=f"Download the {selected_crop_for_download} dataset with updated validation statuses as a CSV file."
         )
 
-# --- Handle Popup Button Clicks (Improvement 2) ---
-# This logic runs at the top to process the action before the page renders.
+# --- Handle Popup Button Clicks ---
 if 'action' in st.query_params:
     action = st.query_params['action']
     status = st.query_params.get('status')
     s_no = int(st.query_params.get('s_no'))
-    
+   
     if action == 'validate' and s_no and status:
         set_validation_by_s_no(s_no, status)
-        # Clear query params to prevent re-triggering on refresh
         st.query_params.clear()
 
 
@@ -452,50 +435,87 @@ else:
     if batch_df.empty:
         st.markdown("<p style='color:black;'>No points in the current filter or batch.</p>", unsafe_allow_html=True)
     else:
-        # Ensure current_point_idx is valid
         if st.session_state.current_point_idx >= len(batch_df):
             st.session_state.current_point_idx = 0
-        
+       
         current_point_details = batch_df.iloc[st.session_state.current_point_idx]
-        
+       
         col_left, col_right = st.columns([1, 3])
 
         with col_left:
             st.markdown("### Batch Overview")
-            # Display batch points with highlight
             display_df = batch_df[['S_No', 'crop_name', 'validation']].reset_index(drop=True)
+           
             st.dataframe(
-                    display_df.style.apply(lambda row: ['background-color: #3498db; color: white'] * len(row) 
-                        if row.name == st.session_state.current_point_idx else [''] * len(row), axis=1),
+                display_df.style.apply(lambda row: ['background-color: #3498db; color: white'] * len(row)
+                    if row.name == st.session_state.current_point_idx else [''] * len(row), axis=1),
+                on_select="rerun",
+                selection_mode="single-row",
                 height=150,
-                use_container_width=True
+                use_container_width=True,
+                key="dataframe_selection"
             )
-            
-            # Batch Progress Indicator
+           
+            # --- THIS IS THE CORRECTED SECTION ---
+            # Handle row selection for zooming
+            selection = st.session_state.get("dataframe_selection")
+            if selection:
+                # Safely get the 'rows' key, defaulting to an empty list if it doesn't exist
+                selected_rows = selection.get("rows", [])
+                if selected_rows:
+                    # Get the S_No from the first selected row
+                    selected_s_no = display_df.iloc[selected_rows[0]]['S_No']
+                    go_to_point_from_dataframe(selected_s_no)
+                    # IMPORTANT: Clear the selection to prevent re-triggering on the next rerun
+                    st.session_state.dataframe_selection = {'rows': []}
+            # --- END OF CORRECTED SECTION ---
+           
             st.markdown(f"<p style='color:black;'>(<b>Batch:</b> {st.session_state.current_batch + 1} / {total_batches} | <b>Points:</b> {st.session_state.current_point_idx + 1} / {len(batch_df)})</p>", unsafe_allow_html=True)
 
-            # --- Navigation and Validation Controls ---
             st.markdown("#### Navigation")
-            
             b_col1, b_col2 = st.columns(2)
             b_col1.button("◀ Prev Batch", on_click=prev_batch, disabled=st.session_state.current_batch == 0, use_container_width=True)
             b_col2.button("Next Batch ▶", on_click=next_batch, disabled=st.session_state.current_batch >= total_batches - 1, use_container_width=True)
-
             p_col1, p_col2 = st.columns(2)
             p_col1.button("◀ Prev Point", on_click=prev_point, disabled=st.session_state.current_point_idx == 0, use_container_width=True)
             p_col2.button("Next Point ▶", on_click=next_point, disabled=st.session_state.current_point_idx >= len(batch_df) - 1, use_container_width=True)
 
             st.markdown("#### Validation")
+            st.markdown("""
+            <div style='font-size: 0.8rem; color: #555; line-height: 1.4;'>
+                <b>Validation:</b> 'a'/'k' for Correct, 'l'/'s' for Incorrect<br>
+                <b>Navigation:</b> ←/→ for Point, Ctrl+←/→ for Batch
+            </div>
+            """, unsafe_allow_html=True)
             v_col1, v_col2 = st.columns(2)
             v_col1.button("✅Correct", on_click=set_validation, args=("Correct",), use_container_width=True)
             v_col2.button("❌wrong", on_click=set_validation, args=("Incorrect",), use_container_width=True)
-            
+           
             st.markdown("#### Validation Summary")
-            validated_count = st.session_state.filtered_gdf['validation'].isin(['Correct', 'Incorrect']).sum()
-            st.markdown(f"<p style='color:black;'><b>Validated:</b> {validated_count} / {total_points_in_filter}</p>", unsafe_allow_html=True)
+            
+            # Calculate counts for each validation status in the current filtered view
+            validation_counts = st.session_state.filtered_gdf['validation'].value_counts()
+            correct_count = validation_counts.get('Correct', 0)
+            incorrect_count = validation_counts.get('Incorrect', 0)
+            total_validated = correct_count + incorrect_count
+            
+            # Display the summary with new real-time counters
+            st.markdown(f"""
+            <div class="custom-card" style="padding: 8px; font-size: 0.9rem; border-left: 4px solid #95a5a6;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                    <span style="color:black;"><b>Total Validated:</b></span>
+                    <span style="color:black;">{total_validated} / {total_points_in_filter}</span>
+                </div>
+                <hr style="margin: 4px 0;">
+                <div style="display: flex; justify-content: space-between;">
+                    <span style="color:green;"><b>✅ Correct:</b> {correct_count}</span>
+                    <span style="color:red;"><b>❌ Incorrect:</b> {incorrect_count}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
             non_validated_options = get_non_validated_options_cached(
-                st.session_state.filtered_gdf.copy(), st.session_state.batch_size
+                st.session_state.filtered_gdf, st.session_state.batch_size
             )
 
             if non_validated_options:
@@ -510,9 +530,7 @@ else:
             else:
                 st.markdown("<p style='color:black;'>All points in the current filter are validated!</p>", unsafe_allow_html=True)
 
-
         with col_right:
-            # --- Current Point Info Card ---
             st.markdown(f"""
             <div class="point-info-card">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
@@ -527,40 +545,28 @@ else:
             </div>
             """, unsafe_allow_html=True)
 
-            # --- Map Display ---
             st.markdown(f"<p style='color:black;'>Map will attempt to render with {len(st.session_state.filtered_gdf)} points.</p>", unsafe_allow_html=True)
             m = folium.Map(
                 location=st.session_state.map_center,
                 zoom_start=st.session_state.map_zoom,
-                tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-                attr='Google Satellite',
-                control_scale=True
-                #max_zoom=21
+                tiles=None, max_zoom=22, min_zoom=1, control_scale=True,
+                scrollWheelZoom=True, doubleClickZoom=True, touchZoom=True, zoomControl=False
             )
-
-            # Add Draw plugin for bounding box (Improvement 1)
+            folium.TileLayer(
+                tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+                attr='Google Satellite', name='Google Satellite', max_zoom=19, overlay=False
+            ).add_to(m)
             Draw(
-                export=True,
-                filename='selection.geojson',
-                position='topleft',
+                export=True, filename='selection.geojson', position='topleft',
                 draw_options={'rectangle': {'shapeOptions': {'color': '#0078A8'}}}
             ).add_to(m)
 
-            # Add markers for the current batch
             for idx, row in batch_df.iterrows():
                 is_current = (idx == current_point_details.name)
-                
-                if row['validation'] == 'Correct':
-                    color, icon = 'green', 'check'
-                elif row['validation'] == 'Incorrect':
-                    color, icon = 'red', 'times'
-                else:
-                    color, icon = 'orange', 'question'
-                
-                if is_current:
-                    color, icon = 'blue', 'star'
-
-                # Improvement 2: Add validation buttons to popup
+                if row['validation'] == 'Correct': color, icon = 'green', 'check'
+                elif row['validation'] == 'Incorrect': color, icon = 'red', 'times'
+                else: color, icon = 'orange', 'question'
+                if is_current: color, icon = 'blue', 'star'
                 popup_html = f"""
                 <div style="width: 200px;">
                     <h4>Point {row['S_No']}</h4>
@@ -571,55 +577,76 @@ else:
                     <a href="?action=validate&status=Incorrect&s_no={row['S_No']}" target="_self" style="background-color: #dc3545; color: white; padding: 5px 10px; text-decoration: none; border-radius: 5px;">❌ Incorrect</a>
                 </div>
                 """
-                
                 folium.CircleMarker(
-                    location=[row.geometry.y, row.geometry.x],
-                    radius=2, # Set radius to 2
-                    color=color,
-                    fill=True,
-                    fill_color=color,
-                    fill_opacity=0.7,
-                    popup=folium.Popup(popup_html)
+                    location=[row.geometry.y, row.geometry.x], radius=2, color=color,
+                    fill=True, fill_color=color, fill_opacity=0.7, popup=folium.Popup(popup_html)
                 ).add_to(m)
 
-            # Render the map
             map_output = st_folium(
-                m,
-                key="folium_map",
-                width='100%',
-                height=400,
-                returned_objects=["all_drawings"]
+                m, key="folium_map", width='100%', height=450, returned_objects=["all_drawings"]
             )
 
-            # --- Bounding Box Validation Logic (Improvement 1) ---
             if map_output and map_output["all_drawings"]:
                 st.markdown("### Bulk Validation")
                 st.markdown("<p style='color:black;'>A bounding box was drawn. Use the buttons below to validate all points inside.</p>", unsafe_allow_html=True)
-                
-                # Get the last drawn shape
                 last_drawing = map_output["all_drawings"][-1]
                 coords = last_drawing['geometry']['coordinates'][0]
                 drawn_polygon = Polygon(coords)
-
-                # Find points within the polygon from the current batch only
                 points_in_box = batch_df[batch_df.within(drawn_polygon)]
-                
                 if not points_in_box.empty:
                     st.markdown(f"<p style='color:black;'>Found <b>{len(points_in_box)}</b> points in the selected area.</p>", unsafe_allow_html=True)
                     st.dataframe(points_in_box[['S_No', 'crop_name', 'validation']], height=150)
-                    
                     bb_col1, bb_col2 = st.columns(2)
                     bb_col1.button(
                         f"✅ Mark all {len(points_in_box)} as Correct",
-                        on_click=bulk_validate,
-                        args=(points_in_box.index, "Correct"),
-                        use_container_width=True
+                        on_click=bulk_validate, args=(points_in_box.index, "Correct"), use_container_width=True
                     )
                     bb_col2.button(
                         f"❌ Mark all {len(points_in_box)} as Incorrect",
-                        on_click=bulk_validate,
-                        args=(points_in_box.index, "Incorrect"),
-                        use_container_width=True
+                        on_click=bulk_validate, args=(points_in_box.index, "Incorrect"), use_container_width=True
                     )
                 else:
                     st.markdown("<p style='color:black;'>No points found within the drawn bounding box.</p>", unsafe_allow_html=True)
+
+# --- Inject JavaScript for Keyboard Shortcuts ---
+components.html(
+    """
+    <script>
+    if (!window.key_listener_attached) {
+        window.parent.document.addEventListener('keydown', function(e) {
+            const activeElement = window.parent.document.activeElement;
+            const isInput = activeElement.tagName === 'INPUT' ||
+                            activeElement.tagName === 'TEXTAREA' ||
+                            activeElement.tagName === 'SELECT' ||
+                            activeElement.isContentEditable;
+            if (isInput) { return; }
+
+            const buttons = Array.from(window.parent.document.querySelectorAll('button'));
+            let targetButton = null;
+
+            if (e.ctrlKey && e.key === 'ArrowRight') {
+                targetButton = buttons.find(btn => btn.innerText.includes('Next Batch'));
+            } else if (e.ctrlKey && e.key === 'ArrowLeft') {
+                targetButton = buttons.find(btn => btn.innerText.includes('Prev Batch'));
+            } else if (e.key === 'ArrowRight') {
+                targetButton = buttons.find(btn => btn.innerText.includes('Next Point'));
+            } else if (e.key === 'ArrowLeft') {
+                targetButton = buttons.find(btn => btn.innerText.includes('Prev Point'));
+            } else if (e.key === 'a' || e.key === 'k') {
+                targetButton = buttons.find(btn => btn.innerText.includes('Correct'));
+            } else if (e.key === 'l' || e.key === 's') {
+                targetButton = buttons.find(btn => btn.innerText.includes('wrong'));
+            }
+
+            if (targetButton) {
+                e.preventDefault();
+                targetButton.click();
+            }
+        });
+        window.key_listener_attached = true;
+    }
+    </script>
+    """,
+    height=0,
+    width=0,
+)
